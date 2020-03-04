@@ -239,10 +239,10 @@ class Instagram
                 $headers['x-instagram-gis'] = $gisToken;
             }
         }
-        
+
         if (empty($headers['x-csrftoken'])) {
             $headers['x-csrftoken'] = md5(uniqid()); // this can be whatever, insta doesn't like an empty value
-        }        
+        }
 
         return $headers;
     }
@@ -350,15 +350,41 @@ class Instagram
         $userArray = self::extractSharedDataFromBody($response->raw_body);
 
         if (!isset($userArray['entry_data']['ProfilePage'][0]['graphql']['user'])) {
+            $additionnalData = self::extractAdditionalDataFromBody($response->raw_body);
+            if($additionnalData['graphql']['user']){
+                $userArray['entry_data']['ProfilePage'][0]['graphql']['user'] = $additionnalData['graphql']['user'];
+            }
+        }
+
+        if (!isset($userArray['entry_data']['ProfilePage'][0]['graphql']['user'])) {
             throw new InstagramException('Response code is ' . $response->code . '. Body: ' . static::getErrorBody($response->body) . ' Something went wrong. Please report issue.', $response->code);
         }
         return Account::create($userArray['entry_data']['ProfilePage'][0]['graphql']['user']);
     }
 
+
+    /*<script type="text/javascript">window._sharedData = {"config":
+    };</script>
+
+    <script type="text/javascript">window.__additionalDataLoaded('/sony/',{"logging_page_id":
+
+        });</script>*/
     private static function extractSharedDataFromBody($body)
     {
         if (preg_match_all('#\_sharedData \= (.*?)\;\<\/script\>#', $body, $out)) {
             return json_decode($out[1][0], true, 512, JSON_BIGINT_AS_STRING);
+        }
+        return null;
+    }
+
+    private static function extractAdditionalDataFromBody($body)
+    {
+
+        //preg_match_all('#\_\_additionalDataLoaded\(\'\/sony\/\'\,(.*?)\)\;\<\/script\>#', $body, $out);
+        //var_dump($out);
+
+        if (preg_match_all('#\_\_additionalDataLoaded\(\'\/(.*)\/\'\,(.*?)\)\;\<\/script\>#', $body, $out)) {
+            return json_decode($out[2][0], true, 512, JSON_BIGINT_AS_STRING);
         }
         return null;
     }
@@ -704,7 +730,7 @@ class Instagram
 
             $commentsUrl = Endpoints::getCommentsBeforeCommentIdByCode($variables);
             $response = Request::get($commentsUrl, $this->generateHeaders($this->userSession, $this->generateGisToken($variables)));
-            
+
             if (static::HTTP_OK !== $response->code) {
                 throw new InstagramException('Response code is ' . $response->code . '. Body: ' . static::getErrorBody($response->body) . ' Something went wrong. Please report issue.', $response->code);
             }
@@ -733,7 +759,7 @@ class Instagram
                 $comments[] = Comment::create($commentArray['node']);
                 $index++;
             }
-            
+
             if ($count > $numberOfComments) {
                 $count = $numberOfComments;
             }
@@ -1446,11 +1472,12 @@ class Instagram
             $response = Request::post(Endpoints::LOGIN_URL, $headers,
                 ['username' => $this->sessionUsername, 'password' => $this->sessionPassword]);
 
+
             if ($response->code !== static::HTTP_OK) {
                 if (
                     $response->code === static::HTTP_BAD_REQUEST
                     && isset($response->body->message)
-                    && $response->body->message == 'checkpoint_required'
+                    //&& $response->body->message == 'checkpoint_required'
                     && !empty($twoStepVerificator)
                 ) {
                     $response = $this->verifyTwoStep($response, $cookies, $twoStepVerificator);
@@ -1484,8 +1511,15 @@ class Instagram
      *
      * @return bool
      */
-    public function isLoggedIn($session)
+    public function isLoggedIn($session = false)
     {
+
+        if(!$session){
+            $session = static::$instanceCache->get($this->getCacheKey());
+        }
+
+
+
         if ($session === null || !isset($session['sessionid'])) {
             return false;
         }
@@ -1531,47 +1565,74 @@ class Instagram
             'user-agent' => $this->getUserAgent(),
         ];
 
-        $url = Endpoints::BASE_URL . $response->body->checkpoint_url;
-        $response = Request::get($url, $headers);
-        if (preg_match('/window._sharedData\s\=\s(.*?)\;<\/script>/', $response->raw_body, $matches)) {
-            $data = json_decode($matches[1], true, 512, JSON_BIGINT_AS_STRING);
-            if (!empty($data['entry_data']['Challenge'][0]['extraData']['content'][3]['fields'][0]['values'])) {
-                $choices = $data['entry_data']['Challenge'][0]['extraData']['content'][3]['fields'][0]['values'];
-            } elseif (!empty($data['entry_data']['Challenge'][0]['fields'])) {
-                $fields = $data['entry_data']['Challenge'][0]['fields'];
-                if (!empty($fields['email'])) {
-                    $choices[] = ['label' => 'Email: ' . $fields['email'], 'value' => 1];
+        var_dump($response->raw_body);
+
+        if(isset($response->body->checkpoint_url)){
+
+            $url = Endpoints::BASE_URL . $response->body->checkpoint_url;
+
+            $response = Request::get($url, $headers);
+            if (preg_match('/window._sharedData\s\=\s(.*?)\;<\/script>/', $response->raw_body, $matches)) {
+                $data = json_decode($matches[1], true, 512, JSON_BIGINT_AS_STRING);
+                if (!empty($data['entry_data']['Challenge'][0]['extraData']['content'][3]['fields'][0]['values'])) {
+                    $choices = $data['entry_data']['Challenge'][0]['extraData']['content'][3]['fields'][0]['values'];
+                } elseif (!empty($data['entry_data']['Challenge'][0]['fields'])) {
+                    $fields = $data['entry_data']['Challenge'][0]['fields'];
+                    if (!empty($fields['email'])) {
+                        $choices[] = ['label' => 'Email: ' . $fields['email'], 'value' => 1];
+                    }
+                    if (!empty($fields['phone_number'])) {
+                        $choices[] = ['label' => 'Phone: ' . $fields['phone_number'], 'value' => 0];
+                    }
                 }
-                if (!empty($fields['phone_number'])) {
-                    $choices[] = ['label' => 'Phone: ' . $fields['phone_number'], 'value' => 0];
+
+                if (!empty($choices)) {
+                    $selected_choice = $twoStepVerificator->getVerificationType($choices);
+                    $response = Request::post($url, $headers, ['choice' => $selected_choice]);
                 }
             }
 
-            if (!empty($choices)) {
-                $selected_choice = $twoStepVerificator->getVerificationType($choices);
-                $response = Request::post($url, $headers, ['choice' => $selected_choice]);
+            /*if (!preg_match('/name="security_code"/', $response->raw_body, $matches)) {
+                throw new InstagramAuthException('Something went wrong when try two step verification. Please report issue.', $response->code);
+            }*/
+
+            $security_code = $twoStepVerificator->getSecurityCode();
+
+            $post_data = [
+                'csrfmiddlewaretoken' => $cookies['csrftoken'],
+                'verify' => 'Verify Account',
+                'security_code' => $security_code,
+            ];
+
+            $response = Request::post($url, $headers, $post_data);
+
+            if ($response->code !== static::HTTP_OK) {
+                throw new InstagramAuthException('Something went wrong when try two step verification and enter security code. Please report issue.', $response->code);
             }
+
+            return $response;
+
+        } else {
+
+            $url = Endpoints::TWO_FACTOR_URL;
+
+            $security_code = $twoStepVerificator->getSecurityCode();
+
+            $post_data = [
+                'csrfmiddlewaretoken' => $cookies['csrftoken'],
+                'verify' => 'Verify Account',
+                'username' => $this->sessionUsername,
+                'verificationCode' => $security_code,
+            ];
+            $response = Request::post($url, $headers, $post_data);
+
+            if ($response->code !== static::HTTP_OK) {
+                throw new InstagramAuthException('1Something went wrong when try two step verification and enter security code. Please report issue.', $response->code);
+            }
+
         }
 
-        if (!preg_match('/name="security_code"/', $response->raw_body, $matches)) {
-            throw new InstagramAuthException('Something went wrong when try two step verification. Please report issue.', $response->code);
-        }
 
-        $security_code = $twoStepVerificator->getSecurityCode();
-
-        $post_data = [
-            'csrfmiddlewaretoken' => $cookies['csrftoken'],
-            'verify' => 'Verify Account',
-            'security_code' => $security_code,
-        ];
-
-        $response = Request::post($url, $headers, $post_data);
-
-        if ($response->code !== static::HTTP_OK) {
-            throw new InstagramAuthException('Something went wrong when try two step verification and enter security code. Please report issue.', $response->code);
-        }
-
-        return $response;
     }
 
     /**
