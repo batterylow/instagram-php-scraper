@@ -1565,7 +1565,7 @@ class Instagram
             'user-agent' => $this->getUserAgent(),
         ];
 
-        var_dump($response->raw_body);
+        //var_dump($response->raw_body);
 
         if(isset($response->body->checkpoint_url)){
 
