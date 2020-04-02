@@ -41,7 +41,7 @@ class CodeVerification implements TwoStepVerificationInterface
 
 
             } else {
-                print 'Сообщение с кодом авторизации отправлено вам на: ' . $choices[0]['label'] .PHP_EOL;
+                //print 'Сообщение с кодом авторизации отправлено вам на: ' . $choices[0]['label'] .PHP_EOL;
                 $selected_choice = $choices[0]['value'];
             }
         } else {
