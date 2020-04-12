@@ -1618,12 +1618,19 @@ class Instagram
 
             $security_code = $twoStepVerificator->getSecurityCode();
 
-            $post_data = [
-                'csrfmiddlewaretoken' => $cookies['csrftoken'],
-                'verify' => 'Verify Account',
-                'username' => $this->sessionUsername,
-                'verificationCode' => $security_code,
+            $headers = [
+                'cookie' => $cookie_string,
+                'referer' => Endpoints::TWO_FACTOR_URL,
+                'x-csrftoken' => $cookies['csrftoken'],
+                'user-agent' => $this->getUserAgent(),
             ];
+
+            $post_data = [
+                'username'=> $this->sessionUsername,
+                'verificationCode'=> $security_code,
+                'identifier'=> $response->body->two_factor_info->two_factor_identifier,
+            ];
+
             $response = Request::post($url, $headers, $post_data);
 
             if ($response->code !== static::HTTP_OK) {
