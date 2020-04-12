@@ -1634,7 +1634,7 @@ class Instagram
             $response = Request::post($url, $headers, $post_data);
 
             if ($response->code !== static::HTTP_OK) {
-                throw new InstagramAuthException('1Something went wrong when try two step verification and enter security code. Please report issue.', $response->code);
+                throw new InstagramAuthException('Wrong Code', $response->code);
             }
 
         }
