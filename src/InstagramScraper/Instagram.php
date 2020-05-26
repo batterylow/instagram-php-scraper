@@ -1470,7 +1470,7 @@ class Instagram
                 'user-agent' => $this->getUserAgent(),
             ];
             $response = Request::post(Endpoints::LOGIN_URL, $headers,
-                ['username' => $this->sessionUsername, 'password' => $this->sessionPassword]);
+                ['username' => $this->sessionUsername, 'enc_password' => '#PWD_INSTAGRAM_BROWSER:0:' . time() . ':' . $this->sessionPassword]);
 
 
             if ($response->code !== static::HTTP_OK) {
